@@ -1,6 +1,6 @@
 # Thiết kế Ontology — Day 19
 
-**Họ tên:** …  **MSSV:** …
+**Họ tên:** Nguyễn Anh Trí  **MSSV:** 2A202602730
 
 **Lựa chọn** (đánh dấu một):
 - [ ] Dùng ontology gợi ý (có thể chỉnh nhỏ)
