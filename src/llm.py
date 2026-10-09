@@ -12,6 +12,7 @@ One run uses one provider for the whole benchmark — no mid-run failover, so co
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import time
 from dataclasses import dataclass, fields
@@ -26,8 +27,13 @@ PROVIDERS = {
                "chat": "gemini-2.5-flash-lite", "embed": "gemini-embedding-001"},
     "anthropic": {"key": "ANTHROPIC_API_KEY", "base_url": None,
                   "chat": "claude-opus-5-5", "embed": None},
+    # Any OpenAI-compatible server (LM Studio, Ollama, vLLM, a gateway...). Set LOCAL_API_KEY and,
+    # to mix it with another chat provider, force EMBEDDING_PROVIDER=local. LOCAL_BASE_URL overrides
+    # the default; LOCAL_CHAT_MODEL / LOCAL_EMBEDDING_MODEL pick the served models.
+    "local": {"key": "LOCAL_API_KEY", "base_url": "http://localhost:1234/v1",
+              "chat": "local-model", "embed": "text-embedding-bge-m3"},
 }
-PROVIDER_ORDER = ["openai", "openrouter", "gemini", "anthropic"]
+PROVIDER_ORDER = ["openai", "openrouter", "gemini", "anthropic", "local"]
 
 # USD per 1M tokens (input, output). Check each provider's pricing page before reporting real numbers.
 PRICES_PER_M = {
@@ -37,6 +43,7 @@ PRICES_PER_M = {
     "text-embedding-3-small": (0.02, 0.0),
     "text-embedding-3-large": (0.13, 0.0),
     "gemini-2.5-flash-lite": (0.10, 0.40),
+    "glm-5.3-flash": (0.15, 0.50),   # OpenCode Go
     # Gemini embedding pricing intentionally omitted: the current pricing page does not list gemini-embedding-001.
     "claude-opus-5-5": (4.00, 20.00),
     "claude-sonnet-5-5": (2.00, 10.00),
@@ -85,11 +92,26 @@ def _strip_fences(text: str) -> str:
         text = text.rsplit("```", 1)[0]
     return text.strip()
 
+def _base_url(provider: str) -> str | None:
+    """Allow any provider's endpoint to be overridden with <PROVIDER>_BASE_URL (e.g. LOCAL_BASE_URL)."""
+    return os.getenv(f"{provider.upper()}_BASE_URL") or PROVIDERS[provider]["base_url"]
+
+def _extra_headers(provider: str) -> dict[str, str]:
+    """Optional <PROVIDER>_EXTRA_HEADERS JSON, e.g. gateways that need a session or user-agent header."""
+    raw = os.getenv(f"{provider.upper()}_EXTRA_HEADERS")
+    if not raw:
+        return {}
+    try:
+        return {str(k): str(v) for k, v in json.loads(raw).items()}
+    except (json.JSONDecodeError, AttributeError):
+        return {}
+
 def _openai_client(provider: str):
     from openai import OpenAI
 
     cfg = PROVIDERS[provider]
-    return OpenAI(api_key=os.environ[cfg["key"]], base_url=cfg["base_url"])
+    return OpenAI(api_key=os.environ[cfg["key"]], base_url=_base_url(provider),
+                  default_headers=_extra_headers(provider))
 
 class MeteredLLM:
     """`chat` and `embed` are drop-in `llm_fn` / `embedding_fn`; `usage` accumulates across calls."""
